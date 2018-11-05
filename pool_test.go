@@ -3,6 +3,7 @@ package gop
 import (
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestQueueSize(t *testing.T) {
@@ -11,6 +12,7 @@ func TestQueueSize(t *testing.T) {
 		MaxWorkers:         42,
 		UnstoppableWorkers: 42,
 	})
+	time.Sleep(time.Millisecond)
 	err := pool.Add(TaskFn(func() {
 	}))
 	if err != nil {
@@ -37,6 +39,7 @@ func TestQueueWorkers(t *testing.T) {
 		UnstoppableWorkers: 42,
 	})
 	pool.Run()
+	time.Sleep(time.Millisecond)
 
 	done := make(chan struct{}, 2)
 	var res int32
@@ -58,12 +61,9 @@ func TestQueueWorkers(t *testing.T) {
 }
 
 func TestPoolClose(t *testing.T) {
-	pool := NewPool(Config{
-		MaxQueueSize:       0,
-		MaxWorkers:         42,
-		UnstoppableWorkers: 42,
-	})
+	pool := NewPool(Config{})
 	pool.Run()
+	time.Sleep(time.Millisecond)
 	err := pool.Add(TaskFn(func() {
 	}))
 	if err != nil {
@@ -95,8 +95,9 @@ func TestPoolQueueOverfilled(t *testing.T) {
 		UnstoppableWorkers: 0,
 	})
 	defer pool.Close()
-	pool.Add(TaskFn(func() {
-	}))
+	if err := pool.Add(TaskFn(func() {})); err != nil {
+		t.Fatalf("add task: want err nil, got %v", err)
+	}
 
 	if err := pool.Add(TaskFn(func() {})); err != ErrPoolFull {
 		t.Fatalf("add task: want err %v, got %v", err, ErrPoolFull)
