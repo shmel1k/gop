@@ -104,6 +104,68 @@ func TestPoolQueueOverfilled(t *testing.T) {
 	}
 }
 
+func TestPoolWithAdditionalWorkers(t *testing.T) {
+	var started int32
+	var finished int32
+	pool := NewPool(Config{
+		ExtraWorkersSpawnPercent: 10,
+		MaxQueueSize:             1,
+		MaxWorkers:               2,
+		UnstoppableWorkers:       1,
+		ExtraWorkerTTL:           100 * time.Millisecond,
+		OnExtraWorkerSpawned: func() {
+			atomic.AddInt32(&started, 1)
+		},
+		OnExtraWorkerFinished: func() {
+			atomic.AddInt32(&finished, 1)
+		},
+	})
+
+	pool.Run()
+	time.Sleep(time.Millisecond)
+
+	pool.Add(TaskFn(func() {
+		time.Sleep(10 * time.Second)
+	}))
+	pool.Add(TaskFn(func() {
+	}))
+	pool.Add(TaskFn(func() {
+	}))
+	time.Sleep(500 * time.Millisecond)
+
+	st := atomic.LoadInt32(&started)
+	if st != 2 {
+		t.Fatalf("additional worker started: want %v, got %v", 2, st)
+	}
+
+	fin := atomic.LoadInt32(&finished)
+	if fin != 2 {
+		t.Fatalf("additional worker finished: want %v, got %v", 2, fin)
+	}
+}
+
+func TestPoolWithAdditionalWorkersClose(t *testing.T) {
+	pool := NewPool(Config{
+		ExtraWorkersSpawnPercent: 10,
+		MaxQueueSize:             1,
+		MaxWorkers:               2,
+		UnstoppableWorkers:       1,
+		ExtraWorkerTTL:           500 * time.Millisecond,
+		OnExtraWorkerSpawned:     func() {},
+		OnExtraWorkerFinished:    func() {},
+	})
+
+	pool.Run()
+	time.Sleep(time.Millisecond)
+
+	pool.Add(TaskFn(func() {
+		time.Sleep(150 * time.Millisecond)
+	}))
+	pool.Add(TaskFn(func() {
+	}))
+	pool.Close()
+}
+
 func BenchmarkPool(b *testing.B) {
 	pool := NewPool(Config{
 		MaxQueueSize:       0,
