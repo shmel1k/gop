@@ -9,17 +9,19 @@ import (
 func TestQueueSize(t *testing.T) {
 	pool := NewPool(Config{
 		MaxQueueSize:       42,
-		MaxWorkers:         42,
-		UnstoppableWorkers: 42,
+		MaxWorkers:         2,
+		UnstoppableWorkers: 2,
 	})
-	time.Sleep(time.Millisecond)
+
 	err := pool.Add(TaskFn(func() {
+		time.Sleep(1 * time.Second)
 	}))
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	err = pool.Add(TaskFn(func() {
+		time.Sleep(1 * time.Second)
 	}))
 	if err != nil {
 		t.Fatal(err)
@@ -29,7 +31,7 @@ func TestQueueSize(t *testing.T) {
 	if size != 2 {
 		t.Fatalf("invalid queue size: got %v, want %v", size, 2)
 	}
-	pool.Close()
+	pool.Shutdown()
 }
 
 func TestQueueWorkers(t *testing.T) {
@@ -38,8 +40,6 @@ func TestQueueWorkers(t *testing.T) {
 		MaxWorkers:         42,
 		UnstoppableWorkers: 42,
 	})
-	pool.Run()
-	time.Sleep(time.Millisecond)
 
 	done := make(chan struct{}, 2)
 	var res int32
@@ -62,7 +62,7 @@ func TestQueueWorkers(t *testing.T) {
 
 func TestPoolClose(t *testing.T) {
 	pool := NewPool(Config{})
-	pool.Run()
+
 	time.Sleep(time.Millisecond)
 	err := pool.Add(TaskFn(func() {
 	}))
@@ -70,7 +70,7 @@ func TestPoolClose(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = pool.Close()
+	err = pool.Shutdown()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,39 +80,38 @@ func TestPoolClose(t *testing.T) {
 	if err != ErrPoolClosed {
 		t.Fatalf("add task: want err %v, got %v", ErrPoolClosed, err)
 	}
-	if err = pool.Close(); err != ErrPoolClosed {
+	if err = pool.Shutdown(); err != ErrPoolClosed {
 		t.Fatalf("close pool: want err %v, got %v", ErrPoolClosed, err)
-	}
-	if err = pool.Run(); err != ErrPoolClosed {
-		t.Fatalf("run pool: want err %v, got %v", ErrPoolClosed, err)
 	}
 }
 
 func TestPoolQueueOverfilled(t *testing.T) {
 	pool := NewPool(Config{
 		MaxQueueSize:       1,
-		MaxWorkers:         0,
-		UnstoppableWorkers: 0,
+		MaxWorkers:         1,
+		UnstoppableWorkers: 1,
 	})
-	defer pool.Close()
-	if err := pool.Add(TaskFn(func() {})); err != nil {
-		t.Fatalf("add task: want err nil, got %v", err)
+
+	for i := 0; i < 5; i++ {
+		pool.Add(TaskFn(func() {
+			time.Sleep(10 * time.Second)
+		}))
 	}
 
 	if err := pool.Add(TaskFn(func() {})); err != ErrPoolFull {
-		t.Fatalf("add task: want err %v, got %v", err, ErrPoolFull)
+		t.Fatalf("add task: want err %v, got %v", ErrPoolFull, err)
 	}
 }
 
 func TestPoolWithAdditionalWorkers(t *testing.T) {
 	var started int32
 	var finished int32
+
 	pool := NewPool(Config{
-		ExtraWorkersSpawnPercent: 10,
-		MaxQueueSize:             1,
-		MaxWorkers:               2,
-		UnstoppableWorkers:       1,
-		ExtraWorkerTTL:           100 * time.Millisecond,
+		MaxQueueSize:       1,
+		MaxWorkers:         3,
+		UnstoppableWorkers: 1,
+		ExtraWorkerTTL:     300 * time.Millisecond,
 		OnExtraWorkerSpawned: func() {
 			atomic.AddInt32(&started, 1)
 		},
@@ -121,16 +120,16 @@ func TestPoolWithAdditionalWorkers(t *testing.T) {
 		},
 	})
 
-	pool.Run()
-	time.Sleep(time.Millisecond)
+	var err error
+	for i := 0; i < 3; i++ {
+		err = pool.Add(TaskFn(func() {
+			time.Sleep(300 * time.Millisecond)
+		}))
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
 
-	pool.Add(TaskFn(func() {
-		time.Sleep(10 * time.Second)
-	}))
-	pool.Add(TaskFn(func() {
-	}))
-	pool.Add(TaskFn(func() {
-	}))
 	time.Sleep(500 * time.Millisecond)
 
 	st := atomic.LoadInt32(&started)
@@ -144,26 +143,81 @@ func TestPoolWithAdditionalWorkers(t *testing.T) {
 	}
 }
 
-func TestPoolWithAdditionalWorkersClose(t *testing.T) {
+func TestPoolWithOnlyAdditionalWorkers(t *testing.T) {
 	pool := NewPool(Config{
-		ExtraWorkersSpawnPercent: 10,
-		MaxQueueSize:             1,
-		MaxWorkers:               2,
-		UnstoppableWorkers:       1,
-		ExtraWorkerTTL:           500 * time.Millisecond,
-		OnExtraWorkerSpawned:     func() {},
-		OnExtraWorkerFinished:    func() {},
+		MaxQueueSize:       1,
+		MaxWorkers:         1,
+		UnstoppableWorkers: 0,
+		ExtraWorkerTTL:     300 * time.Millisecond,
 	})
 
-	pool.Run()
-	time.Sleep(time.Millisecond)
+	err := pool.Add(TaskFn(func() {
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = pool.Add(TaskFn(func() {
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	pool.Shutdown()
+}
+
+func TestPoolCloseAdditionalWorker(t *testing.T) {
+	pool := NewPool(Config{
+		MaxQueueSize:       1,
+		MaxWorkers:         1,
+		UnstoppableWorkers: 0,
+		ExtraWorkerTTL:     100 * time.Millisecond,
+	})
+	err := pool.Add(TaskFn(func() {
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	time.Sleep(200 * time.Millisecond)
+	pool.Shutdown()
+}
+
+func TestPoolCloseAfterWorkerTask(t *testing.T) {
+	pool := NewPool(Config{
+		MaxQueueSize:       1,
+		MaxWorkers:         1,
+		UnstoppableWorkers: 0,
+		ExtraWorkerTTL:     time.Minute,
+	})
+	err := pool.Add(TaskFn(func() {
+		time.Sleep(20 * time.Millisecond)
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	time.Sleep(10 * time.Millisecond)
+
+	pool.Shutdown()
+	time.Sleep(500 * time.Millisecond)
+}
+
+func TestPoolWithAdditionalWorkersClose(t *testing.T) {
+	pool := NewPool(Config{
+		MaxQueueSize:          1,
+		MaxWorkers:            2,
+		UnstoppableWorkers:    1,
+		ExtraWorkerTTL:        500 * time.Millisecond,
+		OnExtraWorkerSpawned:  func() {},
+		OnExtraWorkerFinished: func() {},
+	})
 
 	pool.Add(TaskFn(func() {
 		time.Sleep(150 * time.Millisecond)
 	}))
 	pool.Add(TaskFn(func() {
 	}))
-	pool.Close()
+	pool.Shutdown()
 }
 
 func BenchmarkPool(b *testing.B) {
@@ -172,8 +226,8 @@ func BenchmarkPool(b *testing.B) {
 		MaxWorkers:         10,
 		UnstoppableWorkers: 10,
 	})
-	pool.Run()
-	defer pool.Close()
+
+	defer pool.Shutdown()
 	for i := 0; i < b.N; i++ {
 		pool.Add(TaskFn(func() {
 		}))

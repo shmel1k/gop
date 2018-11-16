@@ -1,11 +1,13 @@
 package gop
 
-import "time"
+import (
+	"time"
+)
 
 type worker struct {
 	quit  <-chan struct{}
 	tasks <-chan TaskFn
-	conf  workerConfig
+	conf  *workerConfig
 }
 
 type workerConfig struct {
@@ -16,7 +18,7 @@ type workerConfig struct {
 	onExtraWorkerFinished func()
 }
 
-func newWorker(tasks <-chan TaskFn, quit <-chan struct{}, params workerConfig) *worker {
+func newWorker(tasks <-chan TaskFn, quit <-chan struct{}, params *workerConfig) *worker {
 	return &worker{
 		quit:  quit,
 		tasks: tasks,
@@ -27,14 +29,14 @@ func newWorker(tasks <-chan TaskFn, quit <-chan struct{}, params workerConfig) *
 func (w *worker) run() {
 	for {
 		select {
+		case t := <-w.tasks:
+			if t != nil {
+				w.conf.onTaskTaken()
+				t()
+				w.conf.onTaskFinished()
+			}
 		case <-w.quit:
 			return
-		case t := <-w.tasks:
-			w.conf.onTaskTaken()
-			if t != nil {
-				t()
-			}
-			w.conf.onTaskFinished()
 		}
 	}
 }
@@ -43,7 +45,7 @@ type additionalWorker struct {
 	*worker
 }
 
-func newAdditionalWorker(tasks <-chan TaskFn, quit <-chan struct{}, params workerConfig) *additionalWorker {
+func newAdditionalWorker(tasks <-chan TaskFn, quit <-chan struct{}, params *workerConfig) *additionalWorker {
 	return &additionalWorker{
 		worker: &worker{
 			quit:  quit,
@@ -53,15 +55,33 @@ func newAdditionalWorker(tasks <-chan TaskFn, quit <-chan struct{}, params worke
 	}
 }
 
-func (w *additionalWorker) run() {
+func (w *additionalWorker) run(t TaskFn) {
+	select {
+	case <-w.quit:
+		return
+	default:
+	}
+
 	ticker := time.NewTicker(w.conf.ttl)
 	defer ticker.Stop()
 
 	w.conf.onExtraWorkerSpawned()
 	defer w.conf.onExtraWorkerFinished()
 
+	t()
+
+	select {
+	case <-ticker.C:
+		return
+	case <-w.quit:
+		return
+	default:
+	}
+
 	for {
 		select {
+		case <-ticker.C:
+			return
 		case <-w.quit:
 			return
 		case t := <-w.tasks:
@@ -70,8 +90,6 @@ func (w *additionalWorker) run() {
 				t()
 				w.conf.onTaskFinished()
 			}
-		case <-ticker.C:
-			return
 		}
 	}
 }

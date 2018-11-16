@@ -17,10 +17,6 @@ type Config struct {
 	// forever until the pool is stopped.
 	UnstoppableWorkers int
 
-	// ExtraWorkersSpawnPercent is a percent for queue to fill to
-	// begin extra workers spawn.
-	ExtraWorkersSpawnPercent int
-
 	// MaxQueueSize defines maximum work
 	// queue size. If MaxQueueSize is 0, then queue is unlimited.
 	MaxQueueSize int
@@ -49,9 +45,6 @@ type Config struct {
 func (c Config) withDefaults() Config {
 	if c.MaxWorkers == 0 {
 		c.MaxWorkers = defaultMaxWorkers
-	}
-	if c.UnstoppableWorkers == 0 {
-		c.UnstoppableWorkers = defaultMaxWorkers
 	}
 	if c.OnTaskTaken == nil {
 		c.OnTaskTaken = func() {}
