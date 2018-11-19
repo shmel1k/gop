@@ -4,8 +4,10 @@ import (
 	"sync/atomic"
 )
 
+// TaskFn is a wrapper for task function.
 type TaskFn func()
 
+// Pool represents worker pool.
 type Pool struct {
 	conf                        Config
 	tasks                       chan TaskFn
@@ -15,6 +17,7 @@ type Pool struct {
 	additionalWorkersAvailable  int32
 }
 
+// NewPool creates a new pool with given configuration params.
 func NewPool(conf Config) *Pool {
 	conf = conf.withDefaults()
 	p := &Pool{
@@ -45,6 +48,7 @@ func NewPool(conf Config) *Pool {
 	return p
 }
 
+// Add adds tasks to the pool.
 func (p *Pool) Add(t TaskFn) error {
 	return p.add(t)
 }
@@ -101,11 +105,15 @@ func (p *Pool) spawnExtraWorker(t TaskFn) error {
 	return nil
 }
 
+// QueueSize is a current queue size.
 func (p *Pool) QueueSize() int32 {
 	res := atomic.LoadInt32(&p.realQueueSize)
 	return res
 }
 
+// Shutdown closes pool and stops workers.
+//
+// If any tasks in a queue left, pool will not take them, so the tasks will be lost.
 func (p *Pool) Shutdown() error {
 	select {
 	case <-p.quit:

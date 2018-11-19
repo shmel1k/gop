@@ -7,6 +7,7 @@ var (
 	defaultUnstoppableWorkers = 10
 )
 
+// Config is a configuration parameters for pool.
 type Config struct {
 	// MaxWorkers is a number of workers run until the pool is stopped.
 	// In this count also included extra workers that added if the pool
