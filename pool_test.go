@@ -6,34 +6,6 @@ import (
 	"time"
 )
 
-func TestQueueSize(t *testing.T) {
-	pool := NewPool(Config{
-		MaxQueueSize:       42,
-		MaxWorkers:         2,
-		UnstoppableWorkers: 2,
-	})
-
-	err := pool.Add(TaskFn(func() {
-		time.Sleep(1 * time.Second)
-	}))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	err = pool.Add(TaskFn(func() {
-		time.Sleep(1 * time.Second)
-	}))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	size := pool.QueueSize()
-	if size != 2 {
-		t.Fatalf("invalid queue size: got %v, want %v", size, 2)
-	}
-	pool.Shutdown()
-}
-
 func TestQueueWorkers(t *testing.T) {
 	pool := NewPool(Config{
 		MaxQueueSize:       42,
@@ -103,9 +75,30 @@ func TestPoolQueueOverfilled(t *testing.T) {
 	}
 }
 
+func TestPoolScheduleTimeout(t *testing.T) {
+	pool := NewPool(Config{
+		MaxQueueSize:        1,
+		MaxWorkers:          1,
+		UnstoppableWorkers:  1,
+		TaskScheduleTimeout: 10 * time.Millisecond,
+	})
+
+	for i := 0; i < 5; i++ {
+		pool.Add(TaskFn(func() {
+			time.Sleep(10 * time.Second)
+		}))
+	}
+
+	if err := pool.Add(TaskFn(func() {})); err != ErrScheduleTimeout {
+		t.Fatalf("add task: want err %v, got %v", ErrScheduleTimeout, err)
+	}
+}
+
 func TestPoolWithAdditionalWorkers(t *testing.T) {
 	var started int32
 	var finished int32
+
+	done := make(chan struct{})
 
 	pool := NewPool(Config{
 		MaxQueueSize:       1,
@@ -117,6 +110,7 @@ func TestPoolWithAdditionalWorkers(t *testing.T) {
 		},
 		OnExtraWorkerFinished: func() {
 			atomic.AddInt32(&finished, 1)
+			done <- struct{}{}
 		},
 	})
 
@@ -130,7 +124,8 @@ func TestPoolWithAdditionalWorkers(t *testing.T) {
 		}
 	}
 
-	time.Sleep(500 * time.Millisecond)
+	<-done
+	<-done
 
 	st := atomic.LoadInt32(&started)
 	if st != 2 {
@@ -151,17 +146,22 @@ func TestPoolWithOnlyAdditionalWorkers(t *testing.T) {
 		ExtraWorkerTTL:     300 * time.Millisecond,
 	})
 
+	done := make(chan struct{})
 	err := pool.Add(TaskFn(func() {
+		done <- struct{}{}
 	}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	err = pool.Add(TaskFn(func() {
+		done <- struct{}{}
 	}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(100 * time.Millisecond)
+	<-done
+	<-done
+
 	pool.Shutdown()
 }
 
@@ -223,8 +223,8 @@ func TestPoolWithAdditionalWorkersClose(t *testing.T) {
 func BenchmarkPool(b *testing.B) {
 	pool := NewPool(Config{
 		MaxQueueSize:       0,
-		MaxWorkers:         10,
-		UnstoppableWorkers: 10,
+		MaxWorkers:         20,
+		UnstoppableWorkers: 20,
 	})
 
 	defer pool.Shutdown()

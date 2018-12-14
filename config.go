@@ -5,6 +5,7 @@ import "time"
 var (
 	defaultMaxWorkers         = 10
 	defaultUnstoppableWorkers = 10
+	defaultWorkerTTL          = time.Second
 )
 
 // Config is a configuration parameters for pool.
@@ -26,6 +27,10 @@ type Config struct {
 	// extra worker shuts down.
 	ExtraWorkerTTL time.Duration
 
+	// TaskScheduleTimeout determines the timeout
+	// for task to be added to the queue.
+	TaskScheduleTimeout time.Duration
+
 	// OnTaskTaken determines a callback is called after any task
 	// from queue is taken.
 	OnTaskTaken func()
@@ -46,6 +51,9 @@ type Config struct {
 func (c Config) withDefaults() Config {
 	if c.MaxWorkers == 0 {
 		c.MaxWorkers = defaultMaxWorkers
+	}
+	if c.ExtraWorkerTTL == 0 {
+		c.ExtraWorkerTTL = defaultWorkerTTL
 	}
 	if c.OnTaskTaken == nil {
 		c.OnTaskTaken = func() {}

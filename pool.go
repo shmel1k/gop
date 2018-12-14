@@ -1,7 +1,9 @@
 package gop
 
 import (
+	"sync"
 	"sync/atomic"
+	"time"
 )
 
 // TaskFn is a wrapper for task function.
@@ -12,6 +14,8 @@ type Pool struct {
 	conf                        Config
 	tasks                       chan TaskFn
 	quit                        chan struct{}
+	mu                          sync.Mutex
+	ticker                      *time.Ticker
 	realQueueSize               int32
 	unstoppableWorkersAvailable int32
 	additionalWorkersAvailable  int32
@@ -26,6 +30,12 @@ func NewPool(conf Config) *Pool {
 		tasks:                       make(chan TaskFn, conf.MaxQueueSize),
 		unstoppableWorkersAvailable: int32(conf.UnstoppableWorkers),
 		additionalWorkersAvailable:  int32(conf.MaxWorkers - conf.UnstoppableWorkers),
+	}
+
+	if conf.TaskScheduleTimeout != 0 {
+		p.ticker = time.NewTicker(conf.TaskScheduleTimeout)
+	} else {
+		p.ticker = &time.Ticker{}
 	}
 
 	workerConf := workerConfig{
@@ -61,11 +71,12 @@ func (p *Pool) add(t TaskFn) error {
 	}
 
 	uAvail := atomic.LoadInt32(&p.unstoppableWorkersAvailable)
-	aAvail := atomic.LoadInt32(&p.additionalWorkersAvailable)
-	if uAvail == 0 && aAvail > 0 {
+	if uAvail == 0 && p.spawnExtraWorker(t) == nil {
 		// All the workers are busy and at least one is available.
-		return p.spawnExtraWorker(t)
+		return nil
 	}
+	// If we have no additional workers available, just send the task to the
+	// task queue.
 
 	select {
 	case p.tasks <- t:
@@ -76,27 +87,53 @@ func (p *Pool) add(t TaskFn) error {
 	default:
 	}
 
-	aAvail = atomic.LoadInt32(&p.additionalWorkersAvailable)
-	if aAvail > 0 {
-		return p.spawnExtraWorker(t)
+	err := p.spawnExtraWorker(t)
+	if err == nil {
+		return nil
 	}
 
-	return ErrPoolFull
+	if p.ticker.C == nil {
+		return ErrPoolFull
+	}
+
+	select {
+	case <-p.quit:
+		return ErrPoolClosed
+	case <-p.ticker.C:
+		// Wait till task scheduling drops by timeout.
+		return ErrScheduleTimeout
+	}
 }
 
 func (p *Pool) spawnExtraWorker(t TaskFn) error {
-	atomic.AddInt32(&p.additionalWorkersAvailable, -1)
+	// FIXME: possible optimization. Add check if
+	// additional workers are enabled in configuration.
+	p.mu.Lock()
+	if p.additionalWorkersAvailable == 0 {
+		p.mu.Unlock()
+		return ErrPoolFull
+	}
+	p.additionalWorkersAvailable--
+	p.mu.Unlock()
+
 	w := newAdditionalWorker(p.tasks, p.quit, &workerConfig{
 		ttl: p.conf.ExtraWorkerTTL,
 		onTaskTaken: func() {
 			atomic.AddInt32(&p.realQueueSize, -1)
-			atomic.AddInt32(&p.additionalWorkersAvailable, -1)
+
+			p.mu.Lock()
+			p.additionalWorkersAvailable--
+			p.mu.Unlock()
+
 			p.conf.OnTaskTaken()
 		},
 		onTaskFinished:       p.conf.OnTaskFinished,
 		onExtraWorkerSpawned: p.conf.OnExtraWorkerSpawned,
 		onExtraWorkerFinished: func() {
-			atomic.AddInt32(&p.additionalWorkersAvailable, 1)
+			p.mu.Lock()
+			p.additionalWorkersAvailable++
+			p.mu.Unlock()
+
 			p.conf.OnExtraWorkerFinished()
 		},
 	})
@@ -122,6 +159,7 @@ func (p *Pool) Shutdown() error {
 	}
 
 	close(p.quit)
+	p.ticker.Stop()
 
 	return nil
 }
