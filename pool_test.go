@@ -172,13 +172,17 @@ func TestPoolCloseAdditionalWorker(t *testing.T) {
 		UnstoppableWorkers: 0,
 		ExtraWorkerTTL:     100 * time.Millisecond,
 	})
+
+	done := make(chan struct{})
 	err := pool.Add(TaskFn(func() {
+		close(done)
 	}))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	time.Sleep(200 * time.Millisecond)
+	<-done
+
 	pool.Shutdown()
 }
 
