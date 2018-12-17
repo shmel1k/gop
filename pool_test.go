@@ -32,7 +32,7 @@ func TestQueueWorkers(t *testing.T) {
 	}
 }
 
-func TestPoolClose(t *testing.T) {
+func TestPoolShutdown(t *testing.T) {
 	pool := NewPool(Config{})
 
 	time.Sleep(time.Millisecond)
@@ -76,21 +76,40 @@ func TestPoolQueueOverfilled(t *testing.T) {
 }
 
 func TestPoolScheduleTimeout(t *testing.T) {
-	pool := NewPool(Config{
-		MaxQueueSize:        1,
-		MaxWorkers:          1,
-		UnstoppableWorkers:  1,
-		TaskScheduleTimeout: 10 * time.Millisecond,
-	})
-
-	for i := 0; i < 5; i++ {
-		pool.Add(TaskFn(func() {
-			time.Sleep(10 * time.Second)
-		}))
+	var testData = []struct {
+		pool        *Pool
+		expectedErr error
+	}{
+		{
+			pool: NewPool(Config{
+				MaxQueueSize:        1,
+				MaxWorkers:          1,
+				UnstoppableWorkers:  1,
+				TaskScheduleTimeout: 10 * time.Millisecond,
+			}),
+			expectedErr: ErrScheduleTimeout,
+		},
+		{
+			pool: NewPool(Config{
+				MaxQueueSize:        1,
+				MaxWorkers:          1,
+				UnstoppableWorkers:  1,
+				TaskScheduleTimeout: 5 * time.Nanosecond,
+			}),
+			expectedErr: ErrScheduleTimeout,
+		},
 	}
 
-	if err := pool.Add(TaskFn(func() {})); err != ErrScheduleTimeout {
-		t.Fatalf("add task: want err %v, got %v", ErrScheduleTimeout, err)
+	for i, v := range testData {
+		for i := 0; i < 5; i++ {
+			v.pool.Add(TaskFn(func() {
+				time.Sleep(10 * time.Second)
+			}))
+		}
+
+		if err := v.pool.Add(TaskFn(func() {})); err != v.expectedErr {
+			t.Errorf("TestPoolScheduleTimeout[%d]: add task: want err %v, got %v", i, v.expectedErr, err)
+		}
 	}
 }
 
