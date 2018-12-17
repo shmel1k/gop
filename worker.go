@@ -30,28 +30,28 @@ func (w *worker) run() {
 	for {
 		select {
 		case t := <-w.tasks:
-			if t != nil {
-				w.conf.onTaskTaken()
-				t()
-				w.conf.onTaskFinished()
-			}
+			w.runTask(t)
 		case <-w.quit:
 			return
 		}
 	}
 }
 
-type additionalWorker struct {
-	*worker
+func (w *worker) runTask(t TaskFn) {
+	if t != nil {
+		w.conf.onTaskTaken()
+		t()
+		w.conf.onTaskFinished()
+	}
 }
+
+type additionalWorker worker
 
 func newAdditionalWorker(tasks <-chan TaskFn, quit <-chan struct{}, params *workerConfig) *additionalWorker {
 	return &additionalWorker{
-		worker: &worker{
-			quit:  quit,
-			tasks: tasks,
-			conf:  params,
-		},
+		quit:  quit,
+		tasks: tasks,
+		conf:  params,
 	}
 }
 
@@ -70,14 +70,6 @@ func (w *additionalWorker) run(t TaskFn) {
 
 	t()
 
-	select {
-	case <-ticker.C:
-		return
-	case <-w.quit:
-		return
-	default:
-	}
-
 	for {
 		select {
 		case <-ticker.C:
@@ -85,11 +77,15 @@ func (w *additionalWorker) run(t TaskFn) {
 		case <-w.quit:
 			return
 		case t := <-w.tasks:
-			if t != nil {
-				w.conf.onTaskTaken()
-				t()
-				w.conf.onTaskFinished()
-			}
+			w.runTask(t)
 		}
+	}
+}
+
+func (w *additionalWorker) runTask(t TaskFn) {
+	if t != nil {
+		w.conf.onTaskTaken()
+		t()
+		w.conf.onTaskFinished()
 	}
 }

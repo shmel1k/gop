@@ -70,23 +70,23 @@ func (p *Pool) add(t TaskFn) error {
 	default:
 	}
 
+	started := time.Now()
+
 	uAvail := atomic.LoadInt32(&p.unstoppableWorkersAvailable)
 	if uAvail == 0 && p.spawnExtraWorker(t) == nil {
 		// All the workers are busy and at least one is available.
 		return nil
 	}
-	// If we have no additional workers available, just send the task to the
-	// task queue.
 
 	select {
 	case p.tasks <- t:
 		atomic.AddInt32(&p.realQueueSize, 1)
 		return nil
-	case <-p.quit:
-		return ErrPoolClosed
 	default:
 	}
 
+	// If we have no additional workers available, just send the task to the
+	// task queue.
 	err := p.spawnExtraWorker(t)
 	if err == nil {
 		return nil
@@ -96,10 +96,18 @@ func (p *Pool) add(t TaskFn) error {
 		return ErrPoolFull
 	}
 
+	left := time.Since(started)
+	if left <= 0 {
+		return ErrScheduleTimeout
+	}
+
 	select {
+	case p.tasks <- t:
+		atomic.AddInt32(&p.realQueueSize, 1)
+		return nil
 	case <-p.quit:
 		return ErrPoolClosed
-	case <-p.ticker.C:
+	case <-time.After(left):
 		// Wait till task scheduling drops by timeout.
 		return ErrScheduleTimeout
 	}
@@ -127,15 +135,15 @@ func (p *Pool) spawnExtraWorker(t TaskFn) error {
 
 			p.conf.OnTaskTaken()
 		},
-		onTaskFinished:       p.conf.OnTaskFinished,
-		onExtraWorkerSpawned: p.conf.OnExtraWorkerSpawned,
-		onExtraWorkerFinished: func() {
+		onTaskFinished: func() {
 			p.mu.Lock()
 			p.additionalWorkersAvailable++
 			p.mu.Unlock()
 
-			p.conf.OnExtraWorkerFinished()
+			p.conf.OnTaskFinished()
 		},
+		onExtraWorkerSpawned:  p.conf.OnExtraWorkerSpawned,
+		onExtraWorkerFinished: p.conf.OnExtraWorkerFinished,
 	})
 	go w.run(t)
 
