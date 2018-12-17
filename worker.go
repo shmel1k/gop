@@ -56,11 +56,8 @@ func newAdditionalWorker(tasks <-chan TaskFn, quit <-chan struct{}, params *work
 }
 
 func (w *additionalWorker) run(t TaskFn) {
-	select {
-	case <-w.quit:
-		return
-	default:
-	}
+	// Execute the task anyway.
+	// But next we can easily stop the worker.
 
 	ticker := time.NewTicker(w.conf.ttl)
 	defer ticker.Stop()
@@ -68,7 +65,7 @@ func (w *additionalWorker) run(t TaskFn) {
 	w.conf.onExtraWorkerSpawned()
 	defer w.conf.onExtraWorkerFinished()
 
-	t()
+	w.runTask(t)
 
 	for {
 		select {

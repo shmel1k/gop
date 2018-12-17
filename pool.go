@@ -96,7 +96,7 @@ func (p *Pool) add(t TaskFn) error {
 		return ErrPoolFull
 	}
 
-	left := time.Since(started)
+	left := time.Since(started) - p.conf.TaskScheduleTimeout
 	if left <= 0 {
 		return ErrScheduleTimeout
 	}
