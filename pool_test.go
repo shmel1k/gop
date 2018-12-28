@@ -12,6 +12,25 @@ func shutdownPool(t *testing.T, p *Pool) {
 	}
 }
 
+func TestQueueSize(t *testing.T) {
+	pool := NewPool(Config{
+		MaxQueueSize:       42,
+		MaxWorkers:         42,
+		UnstoppableWorkers: 42,
+	})
+	defer shutdownPool(t, pool)
+
+	done := make(chan struct{})
+	pool.Add(TaskFn(func() {
+		close(done)
+	}))
+	<-done
+	queueSize := pool.QueueSize()
+	if queueSize != int32(0) {
+		t.Errorf("TestQueueSize: got pool size %v, expected %v", queueSize, 0)
+	}
+}
+
 func TestQueueWorkers(t *testing.T) {
 	pool := NewPool(Config{
 		MaxQueueSize:       42,
