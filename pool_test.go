@@ -264,6 +264,40 @@ func TestPoolWithAdditionalWorkersClose(t *testing.T) {
 	}))
 }
 
+func TestPoolCloseWhileTaskBeingScheduled(t *testing.T) {
+	pool := NewPool(Config{
+		MaxQueueSize:        1,
+		MaxWorkers:          1,
+		UnstoppableWorkers:  1,
+		TaskScheduleTimeout: time.Second,
+	})
+
+	done := make(chan struct{})
+	go func() {
+		err := pool.Add(TaskFn(func() {
+			time.Sleep(time.Second)
+		}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = pool.Add(TaskFn(func() {
+		})) // NOTE: task is added to the queue.
+		close(done)
+		if err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(100 * time.Millisecond)
+		shutdownPool(t, pool)
+	}()
+
+	<-done
+	err := pool.Add(TaskFn(func() {
+	}))
+	if err != ErrPoolClosed {
+		t.Fatal(err)
+	}
+}
+
 func BenchmarkPool(b *testing.B) {
 	pool := NewPool(Config{
 		MaxQueueSize:       0,
