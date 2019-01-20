@@ -300,14 +300,19 @@ func TestPoolCloseWhileTaskBeingScheduled(t *testing.T) {
 
 func BenchmarkPool(b *testing.B) {
 	pool := NewPool(Config{
-		MaxQueueSize:       0,
+		MaxQueueSize:       10,
 		MaxWorkers:         20,
 		UnstoppableWorkers: 20,
 	})
 	defer pool.Shutdown()
 
+	taskDone := make(chan struct{})
 	for i := 0; i < b.N; i++ {
-		pool.Add(TaskFn(func() {
-		}))
+		if err := pool.Add(TaskFn(func() {
+			taskDone <- struct{}{}
+		})); err != nil {
+			b.Fatal(err)
+		}
+		<-taskDone
 	}
 }
