@@ -10,7 +10,7 @@ bench_cpu:
 	go test ./... -bench=. -cpuprofile=cpu.out
 
 bench_mem:
-	go test ./... -bench=. -memprofile=mem.out
+	go test ./... -bench=. -memprofile=mem.out -benchmem
 
 clean:
 	rm *.out *.test
