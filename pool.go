@@ -128,22 +128,27 @@ func (p *Pool) spawnExtraWorker(t TaskFn) error {
 		onTaskTaken: func() {
 			atomic.AddInt32(&p.realQueueSize, -1)
 
+			p.conf.OnTaskTaken()
+		},
+		onTaskFinished: func() {
+			p.conf.OnTaskFinished()
+		},
+		onExtraWorkerSpawned: func() {
 			p.mu.Lock()
 			p.additionalWorkersAvailable--
 			p.mu.Unlock()
 
-			p.conf.OnTaskTaken()
+			p.conf.OnExtraWorkerSpawned()
 		},
-		onTaskFinished: func() {
+		onExtraWorkerFinished: func() {
 			p.mu.Lock()
 			p.additionalWorkersAvailable++
 			p.mu.Unlock()
 
-			p.conf.OnTaskFinished()
+			p.conf.OnExtraWorkerFinished()
 		},
-		onExtraWorkerSpawned:  p.conf.OnExtraWorkerSpawned,
-		onExtraWorkerFinished: p.conf.OnExtraWorkerFinished,
 	})
+	w.conf.onExtraWorkerSpawned()
 	go w.run(t)
 
 	return nil

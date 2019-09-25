@@ -62,7 +62,6 @@ func (w *additionalWorker) run(t TaskFn) {
 	ticker := time.NewTicker(w.conf.ttl)
 	defer ticker.Stop()
 
-	w.conf.onExtraWorkerSpawned()
 	defer w.conf.onExtraWorkerFinished()
 
 	w.runTask(t)
