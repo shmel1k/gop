@@ -115,15 +115,12 @@ func (p *Pool) spawnExtraWorker(t TaskFn) error {
 	// FIXME: possible optimization. Add check if
 	// additional workers are enabled in configuration.
 	var swapped bool
-	for {
+	for !swapped {
 		v := atomic.LoadInt32(&p.additionalWorkersAvailable)
 		if v == 0 {
 			return ErrPoolFull
 		}
 		swapped = atomic.CompareAndSwapInt32(&p.additionalWorkersAvailable, v, v-1)
-		if swapped {
-			break
-		}
 	}
 
 	w := newAdditionalWorker(p.tasks, p.quit, &workerConfig{
