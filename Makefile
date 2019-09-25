@@ -1,7 +1,7 @@
 all:
 	GO111MODULE=on go mod vendor
 	GO111MODULE=on go mod tidy
-	go test -v ./... -cover -race
+	go test -v ./... -cover
 
 bench:
 	go test ./... -bench=. -benchmem
