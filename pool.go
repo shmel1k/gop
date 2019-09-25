@@ -1,7 +1,6 @@
 package gop
 
 import (
-	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -14,7 +13,6 @@ type Pool struct {
 	conf                        Config
 	tasks                       chan TaskFn
 	quit                        chan struct{}
-	mu                          sync.Mutex
 	ticker                      *time.Ticker
 	realQueueSize               int32
 	unstoppableWorkersAvailable int32
@@ -116,10 +114,16 @@ func (p *Pool) add(t TaskFn) error {
 func (p *Pool) spawnExtraWorker(t TaskFn) error {
 	// FIXME: possible optimization. Add check if
 	// additional workers are enabled in configuration.
-	p.mu.Lock()
-	if p.additionalWorkersAvailable == 0 {
-		p.mu.Unlock()
-		return ErrPoolFull
+	var swapped bool
+	for {
+		v := atomic.LoadInt32(&p.additionalWorkersAvailable)
+		if v == 0 {
+			return ErrPoolFull
+		}
+		swapped = atomic.CompareAndSwapInt32(&p.additionalWorkersAvailable, v, v-1)
+		if swapped {
+			break
+		}
 	}
 
 	w := newAdditionalWorker(p.tasks, p.quit, &workerConfig{
@@ -136,16 +140,11 @@ func (p *Pool) spawnExtraWorker(t TaskFn) error {
 			p.conf.OnExtraWorkerSpawned()
 		},
 		onExtraWorkerFinished: func() {
-			p.mu.Lock()
-			p.additionalWorkersAvailable++
-			p.mu.Unlock()
+			atomic.AddInt32(&p.additionalWorkersAvailable, 1)
 
 			p.conf.OnExtraWorkerFinished()
 		},
 	})
-
-	p.additionalWorkersAvailable--
-	p.mu.Unlock()
 
 	w.conf.onExtraWorkerSpawned()
 	go w.run(t)
