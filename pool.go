@@ -121,7 +121,6 @@ func (p *Pool) spawnExtraWorker(t TaskFn) error {
 		p.mu.Unlock()
 		return ErrPoolFull
 	}
-	p.mu.Unlock()
 
 	w := newAdditionalWorker(p.tasks, p.quit, &workerConfig{
 		ttl: p.conf.ExtraWorkerTTL,
@@ -134,10 +133,6 @@ func (p *Pool) spawnExtraWorker(t TaskFn) error {
 			p.conf.OnTaskFinished()
 		},
 		onExtraWorkerSpawned: func() {
-			p.mu.Lock()
-			p.additionalWorkersAvailable--
-			p.mu.Unlock()
-
 			p.conf.OnExtraWorkerSpawned()
 		},
 		onExtraWorkerFinished: func() {
@@ -148,6 +143,10 @@ func (p *Pool) spawnExtraWorker(t TaskFn) error {
 			p.conf.OnExtraWorkerFinished()
 		},
 	})
+
+	p.additionalWorkersAvailable--
+	p.mu.Unlock()
+
 	w.conf.onExtraWorkerSpawned()
 	go w.run(t)
 
