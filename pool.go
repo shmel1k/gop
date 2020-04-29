@@ -1,6 +1,7 @@
 package gop
 
 import (
+	"context"
 	"sync/atomic"
 	"time"
 )
@@ -58,13 +59,19 @@ func NewPool(conf Config) *Pool {
 
 // Add adds tasks to the pool.
 func (p *Pool) Add(t TaskFn) error {
-	return p.add(t)
+	return p.add(context.Background(), t)
 }
 
-func (p *Pool) add(t TaskFn) error {
+func (p *Pool) AddContext(ctx context.Context, t TaskFn) error {
+	return p.add(ctx, t)
+}
+
+func (p *Pool) add(ctx context.Context, t TaskFn) error {
 	select {
 	case <-p.quit:
 		return ErrPoolClosed
+	case <-ctx.Done():
+		return ctx.Err()
 	default:
 	}
 
@@ -80,6 +87,8 @@ func (p *Pool) add(t TaskFn) error {
 	case p.tasks <- t:
 		atomic.AddInt32(&p.realQueueSize, 1)
 		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	default:
 	}
 
@@ -105,6 +114,8 @@ func (p *Pool) add(t TaskFn) error {
 		return nil
 	case <-p.quit:
 		return ErrPoolClosed
+	case <-ctx.Done():
+		return ctx.Err()
 	case <-time.After(left):
 		// Wait till task scheduling drops by timeout.
 		return ErrScheduleTimeout
