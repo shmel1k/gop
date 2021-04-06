@@ -6,11 +6,8 @@ import (
 	"time"
 )
 
-// TaskFn is a wrapper for task function.
-type TaskFn func()
-
-// Pool represents worker pool.
-type Pool struct {
+// pool represents worker pool.
+type pool struct {
 	conf                        Config
 	tasks                       chan TaskFn
 	quit                        chan struct{}
@@ -21,9 +18,9 @@ type Pool struct {
 }
 
 // NewPool creates a new pool with given configuration params.
-func NewPool(conf Config) *Pool {
+func NewPool(conf Config) Pool {
 	conf = conf.withDefaults()
-	p := &Pool{
+	p := &pool{
 		conf:                        conf,
 		quit:                        make(chan struct{}),
 		tasks:                       make(chan TaskFn, conf.MaxQueueSize),
@@ -57,16 +54,15 @@ func NewPool(conf Config) *Pool {
 	return p
 }
 
-// Add adds tasks to the pool.
-func (p *Pool) Add(t TaskFn) error {
+func (p *pool) Add(t TaskFn) error {
 	return p.add(context.Background(), t)
 }
 
-func (p *Pool) AddContext(ctx context.Context, t TaskFn) error {
+func (p *pool) AddContext(ctx context.Context, t TaskFn) error {
 	return p.add(ctx, t)
 }
 
-func (p *Pool) add(ctx context.Context, t TaskFn) error {
+func (p *pool) add(ctx context.Context, t TaskFn) error {
 	select {
 	case <-p.quit:
 		return ErrPoolClosed
@@ -122,7 +118,7 @@ func (p *Pool) add(ctx context.Context, t TaskFn) error {
 	}
 }
 
-func (p *Pool) spawnExtraWorker(t TaskFn) error {
+func (p *pool) spawnExtraWorker(t TaskFn) error {
 	// FIXME: possible optimization. Add check if
 	// additional workers are enabled in configuration.
 	var swapped bool
@@ -160,16 +156,12 @@ func (p *Pool) spawnExtraWorker(t TaskFn) error {
 	return nil
 }
 
-// QueueSize is a current queue size.
-func (p *Pool) QueueSize() int32 {
+func (p *pool) QueueSize() int32 {
 	res := atomic.LoadInt32(&p.realQueueSize)
 	return res
 }
 
-// Shutdown closes pool and stops workers.
-//
-// If any tasks in a queue left, pool will not take them, so the tasks will be lost.
-func (p *Pool) Shutdown() error {
+func (p *pool) Shutdown() error {
 	select {
 	case <-p.quit:
 		return ErrPoolClosed

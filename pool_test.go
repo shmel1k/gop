@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-func shutdownPool(t *testing.T, p *Pool) {
+func shutdownPool(t *testing.T, p Pool) {
 	if err := p.Shutdown(); err != nil {
 		t.Errorf("failed to shutdown pool: %s", err)
 	}
@@ -104,7 +104,7 @@ func TestPoolQueueOverfilled(t *testing.T) {
 
 func TestPoolScheduleTimeout(t *testing.T) {
 	var testData = []struct {
-		pool        *Pool
+		pool        Pool
 		expectedErr error
 	}{
 		{
